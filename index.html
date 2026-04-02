@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PostHog Engineering Impact Dashboard</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Syne:wght@400;600;700;800&display=swap');
+  :root {
+    --bg:#0d0d0d;--surface:#151515;--surface2:#1e1e1e;--border:#2a2a2a;
+    --accent:#f54e00;--accent2:#fbbf24;--accent3:#34d399;--text:#f0f0f0;--muted:#666;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;min-height:100vh;}
+
+  /* SETUP */
+  #setup{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:40px;}
+  .setup-card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:40px;max-width:540px;width:100%;}
+  .logo-row{display:flex;align-items:center;gap:12px;margin-bottom:20px;}
+  .logo-box{width:40px;height:40px;background:var(--accent);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:800;color:#fff;}
+  .setup-title{font-size:20px;font-weight:700;}
+  .setup-sub{font-size:11px;color:var(--muted);font-family:'JetBrains Mono',monospace;margin-top:3px;}
+  .setup-desc{font-size:13px;color:#888;line-height:1.6;margin-bottom:24px;}
+  .token-input{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px 16px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:13px;outline:none;margin-bottom:12px;transition:border-color .2s;}
+  .token-input:focus{border-color:var(--accent);}
+  .run-btn{width:100%;background:var(--accent);color:#fff;border:none;border-radius:8px;padding:14px;font-size:14px;font-weight:700;cursor:pointer;font-family:'Syne',sans-serif;transition:opacity .2s;}
+  .run-btn:hover{opacity:.85;}
+  .run-btn:disabled{opacity:.4;cursor:not-allowed;}
+  .prefill-note{font-size:10px;color:var(--muted);font-family:'JetBrains Mono',monospace;margin-top:8px;}
+
+  /* PROGRESS */
+  #progress{display:none;align-items:center;justify-content:center;min-height:100vh;}
+  .prog-card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:36px;max-width:520px;width:100%;}
+  .prog-title{font-size:15px;font-weight:700;margin-bottom:16px;}
+  .prog-log{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);height:220px;overflow-y:auto;line-height:1.9;}
+  .prog-log .ok{color:#34d399;} .prog-log .act{color:#fbbf24;} .prog-log .er{color:#f87171;}
+  .prog-bar-outer{height:4px;background:var(--surface2);border-radius:2px;margin-top:14px;}
+  .prog-bar-inner{height:100%;background:var(--accent);border-radius:2px;transition:width .3s;width:0%;}
+
+  /* DASHBOARD */
+  #dash{display:none;}
+  header{display:flex;align-items:center;justify-content:space-between;padding:15px 26px;border-bottom:1px solid var(--border);background:var(--surface);}
+  .hdr-left{display:flex;align-items:center;gap:12px;}
+  .hdr-logo{width:28px;height:28px;background:var(--accent);border-radius:7px;display:flex;align-items:center;justify-content:center;font-weight:800;color:#fff;font-size:15px;}
+  h1{font-size:14px;font-weight:700;}
+  .hdr-sub{font-size:10px;color:var(--muted);font-family:'JetBrains Mono',monospace;margin-top:1px;}
+  .hdr-meta{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--muted);text-align:right;}
+  main{padding:18px 26px;}
+
+  .method-bar{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:11px 16px;margin-bottom:14px;display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start;}
+  .method-lbl{font-size:9px;font-family:'JetBrains Mono',monospace;color:var(--muted);text-transform:uppercase;letter-spacing:1px;white-space:nowrap;padding-top:4px;}
+  .pills{display:flex;gap:6px;flex-wrap:wrap;flex:1;}
+  .pill{font-size:9px;font-family:'JetBrains Mono',monospace;padding:3px 8px;border-radius:20px;border:1px solid;white-space:nowrap;}
+  .p-del{border-color:#f54e0055;color:#f54e00;background:#f54e0010;}
+  .p-rev{border-color:#fbbf2455;color:#fbbf24;background:#fbbf2410;}
+  .p-usr{border-color:#a78bfa55;color:#a78bfa;background:#a78bfa10;}
+  .p-rfl{border-color:#34d39955;color:#34d399;background:#34d39910;}
+  .p-col{border-color:#60a5fa55;color:#60a5fa;background:#60a5fa10;}
+  .legend{display:flex;gap:10px;flex-wrap:wrap;font-size:9px;font-family:'JetBrains Mono',monospace;}
+  .leg-i{display:flex;align-items:center;gap:4px;color:var(--muted);}
+  .leg-d{width:7px;height:7px;border-radius:2px;}
+
+  .note-bar{font-size:10px;color:#444;font-family:'JetBrains Mono',monospace;margin-bottom:12px;}
+  .board{display:flex;flex-direction:column;gap:10px;}
+
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:15px 18px;transition:border-color .2s,background .2s;}
+  .card:hover{border-color:var(--accent);background:#1a1a1a;}
+  .card.r1{border-left:3px solid var(--accent);}
+  .card.r2{border-left:3px solid #9ca3af;}
+  .card.r3{border-left:3px solid var(--accent2);}
+  .card.r4{border-left:3px solid #60a5fa;}
+  .card.r5{border-left:3px solid var(--accent3);}
+
+  .card-top{display:flex;align-items:center;gap:12px;}
+  .rk{width:26px;height:26px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;flex-shrink:0;}
+  .r1 .rk{background:#f54e0020;color:var(--accent);}
+  .r2 .rk{background:#9ca3af15;color:#9ca3af;}
+  .r3 .rk{background:#fbbf2420;color:var(--accent2);}
+  .r4 .rk{background:#60a5fa20;color:#60a5fa;}
+  .r5 .rk{background:#34d39920;color:var(--accent3);}
+  .av{width:34px;height:34px;border-radius:50%;flex-shrink:0;background:var(--border);object-fit:cover;}
+  .eng-info{flex:1;min-width:0;}
+  .eng-name{font-weight:700;font-size:13px;display:flex;align-items:center;gap:7px;}
+  .gh-lnk{font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--muted);text-decoration:none;}
+  .gh-lnk:hover{color:var(--accent);}
+  .eng-tag{font-size:10px;color:var(--muted);margin-top:2px;font-family:'JetBrains Mono',monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .score-sec{display:flex;align-items:center;gap:10px;flex-shrink:0;}
+  .iscore{font-family:'JetBrains Mono',monospace;font-size:19px;font-weight:700;min-width:55px;text-align:right;}
+  .r1 .iscore{color:var(--accent);} .r2 .iscore{color:#9ca3af;} .r3 .iscore{color:var(--accent2);}
+  .r4 .iscore{color:#60a5fa;} .r5 .iscore{color:var(--accent3);}
+  .bar-wrap{width:130px;}
+  .bar-lbl{font-size:9px;color:var(--muted);font-family:'JetBrains Mono',monospace;margin-bottom:3px;}
+  .sbar{height:5px;border-radius:3px;background:var(--surface2);overflow:hidden;display:flex;}
+  .bs{height:100%;}
+  .bs-del{background:var(--accent);} .bs-rev{background:var(--accent2);}
+  .bs-usr{background:#a78bfa;} .bs-rfl{background:var(--accent3);} .bs-col{background:#60a5fa;}
+  .exp-btn{background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-size:10px;padding:5px 9px;border-radius:6px;cursor:pointer;font-family:'JetBrains Mono',monospace;white-space:nowrap;transition:all .2s;}
+  .exp-btn:hover{border-color:var(--accent);color:var(--accent);}
+
+  .detail{display:none;margin-top:12px;padding-top:12px;border-top:1px solid var(--border);}
+  .detail.open{display:block;}
+  .mg{display:grid;grid-template-columns:repeat(5,1fr);gap:7px;margin-bottom:12px;}
+  .mc{background:var(--surface2);border-radius:8px;padding:9px 10px;text-align:center;}
+  .mv{font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;}
+  .ml{font-size:9px;color:var(--muted);margin-top:2px;}
+  .cs-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px;}
+  .cs-box{background:var(--surface2);border-radius:10px;padding:11px 13px;border:1px solid var(--border);}
+  .cs-hdr{display:flex;align-items:center;gap:7px;margin-bottom:7px;}
+  .cs-badge{font-size:9px;font-family:'JetBrains Mono',monospace;padding:2px 6px;border-radius:20px;font-weight:600;}
+  .b-usr{background:#a78bfa20;color:#a78bfa;border:1px solid #a78bfa40;}
+  .b-rfl{background:#34d39920;color:#34d399;border:1px solid #34d39940;}
+  .cs-t{font-size:11px;font-weight:600;}
+  .cs-sc{font-family:'JetBrains Mono',monospace;font-size:21px;font-weight:700;margin-bottom:5px;}
+  .cs-desc{font-size:10px;color:var(--muted);line-height:1.5;}
+  .rfp{display:flex;gap:5px;flex-wrap:wrap;margin-top:7px;}
+  .rfp span{font-size:9px;font-family:'JetBrains Mono',monospace;padding:2px 6px;border-radius:4px;background:#34d39915;border:1px solid #34d39930;color:#34d399;}
+  footer{text-align:center;padding:12px;font-size:10px;color:var(--muted);font-family:'JetBrains Mono',monospace;border-top:1px solid var(--border);margin-top:18px;}
+</style>
+</head>
+<body>
+
+<div id="setup">
+  <div class="setup-card">
+    <div class="logo-row">
+      <div class="logo-box">P</div>
+      <div><div class="setup-title">PostHog Engineering Impact</div><div class="setup-sub">github.com/PostHog/posthog · 90-day analysis</div></div>
+    </div>
+    <p class="setup-desc">Identifies the top 5 most impactful PostHog engineers using a multi-dimensional scoring model: PR delivery complexity, code review quality, user problem resolution, revenue feature contribution, and cross-team collaboration. Data is fetched live from GitHub — only PostHog org members are scored.</p>
+    <input class="token-input" id="tok" type="password" placeholder="GitHub Personal Access Token (ghp_...)" autocomplete="off">
+    <button class="run-btn" id="runbtn" onclick="start()">Analyze PostHog Engineers →</button>
+    <div class="prefill-note">Token never leaves your browser. Requires: public_repo + read:org scopes.</div>
+  </div>
+</div>
+
+<div id="progress">
+  <div class="prog-card">
+    <div class="prog-title">🔬 Analyzing PostHog/posthog...</div>
+    <div class="prog-log" id="plog"></div>
+    <div class="prog-bar-outer"><div class="prog-bar-inner" id="pbar"></div></div>
+  </div>
+</div>
+
+<div id="dash">
+  <header>
+    <div class="hdr-left">
+      <div class="hdr-logo">P</div>
+      <div><h1>Engineering Impact Dashboard</h1><div class="hdr-sub">PostHog/posthog · Last 90 days · Employees only</div></div>
+    </div>
+    <div class="hdr-meta" id="hdr-meta"></div>
+  </header>
+  <main>
+    <div class="method-bar">
+      <div class="method-lbl">Impact<br>Formula</div>
+      <div class="pills">
+        <span class="pill p-del">📦 PR Delivery 30% — complexity × merge rate</span>
+        <span class="pill p-rev">🔍 Code Review 20% — volume + quality</span>
+        <span class="pill p-col">🤝 Collab 10% — teammates unblocked</span>
+        <span class="pill p-usr">🧩 User Problem Solver* — external issues resolved</span>
+        <span class="pill p-rfl">💰 Revenue Features* — replay · flags · analytics · pipeline · LLM</span>
+      </div>
+      <div class="legend">
+        <div class="leg-i"><div class="leg-d" style="background:#f54e00"></div>Delivery</div>
+        <div class="leg-i"><div class="leg-d" style="background:#fbbf24"></div>Review</div>
+        <div class="leg-i"><div class="leg-d" style="background:#a78bfa"></div>User</div>
+        <div class="leg-i"><div class="leg-d" style="background:#34d399"></div>Revenue</div>
+        <div class="leg-i"><div class="leg-d" style="background:#60a5fa"></div>Collab</div>
+      </div>
+    </div>
+    <div class="note-bar">* Custom Score A (User Problem Solver) and Custom Score B (Revenue Feature Contributor) are independently computed and added to composite. Click any card for breakdown.</div>
+    <div class="board" id="board"></div>
+  </main>
+  <footer id="ft"></footer>
+</div>
+
+<script>
+const REPO="PostHog/posthog", ORG="PostHog";
+const SINCE=new Date(Date.now()-90*864e5).toISOString();
+const REV_KW={
+  session_replay:["sessionrecording","session-recording","session_recording","rrweb","heatmap"," replay","recordings","session replay"],
+  feature_flags:["feature_flag","featureflag","feature-flag","experiment","a/b test","multivariate","rollout","isfeatureenabled"],
+  product_analytics:["hogql","insight","funnel","retention"," trend","cohort","correlation","stickiness","lifecycle","path analysis"],
+  data_pipeline:["ingestion","kafka","clickhouse","pipeline","capture","plugin-server","plugin_server","celery","event processing"],
+  llm_analytics:["llm","openai","anthropic","langchain","token usage","model latency","tracing","llm observ","ai analytic"]
+};
+const REV_W={session_replay:1,feature_flags:1,product_analytics:.9,data_pipeline:.85,llm_analytics:.95};
+const FEAT_LBL={session_replay:"Session Replay",feature_flags:"Feature Flags/Experiments",product_analytics:"Product Analytics/HogQL",data_pipeline:"Data Pipeline/Ingestion",llm_analytics:"LLM Analytics"};
+let plog,pbar,TOKEN;
+
+function log(msg,cls=""){const d=document.createElement("div");if(cls)d.className=cls;d.textContent=msg;plog.appendChild(d);plog.scrollTop=plog.scrollHeight;}
+function prog(p){pbar.style.width=p+"%";}
+
+async function gh(url,all=true){
+  let res=[],next=url;
+  while(next){
+    const r=await fetch(next,{headers:{Authorization:`token ${TOKEN}`,Accept:"application/vnd.github.v3+json"}});
+    if(r.status===403||r.status===429){
+      const reset=r.headers.get("X-RateLimit-Reset");
+      const wait=reset?Math.max(+reset*1000-Date.now(),0)+2000:10000;
+      log(`  ⏳ Rate limited, waiting ${Math.ceil(wait/1000)}s...`,"act");
+      await new Promise(r=>setTimeout(r,wait));
+      continue;
+    }
+    if(!r.ok){log(`  ⚠ HTTP ${r.status}`,"er");break;}
+    const d=await r.json();
+    if(Array.isArray(d)){res.push(...d);if(!all)break;const lk=r.headers.get("Link")||"";const nx=lk.match(/<([^>]+)>;\s*rel="next"/);next=nx?nx[1]:null;}
+    else return d;
+  }
+  return res;
+}
+
+function revMatch(txt){
+  const t=(txt||"").toLowerCase(),out={};
+  for(const[f,kws]of Object.entries(REV_KW)){const c=kws.filter(k=>t.includes(k)).length;if(c)out[f]=Math.min(c,3);}
+  return out;
+}
+
+function complexity(pr){
+  const s=Math.log1p((pr.additions||0)+(pr.deletions||0))*.5+Math.log1p(pr.changed_files||0)*2;
+  const t=(pr.title||"").toLowerCase();
+  let b=0;
+  if(/feat|feature|implement|new /.test(t))b+=2;
+  if(/fix|bug|crash|error|regression/.test(t))b+=1.5;
+  if(/perf|optim|speed/.test(t))b+=2;
+  if(/breaking/.test(t))b+=3;
+  return s+b;
+}
+
+async function start(){
+  TOKEN=document.getElementById("tok").value.trim();
+  if(!TOKEN){alert("Paste your GitHub token first.");return;}
+  document.getElementById("runbtn").disabled=true;
+  document.getElementById("setup").style.display="none";
+  const pel=document.getElementById("progress");pel.style.display="flex";
+  plog=document.getElementById("plog");pbar=document.getElementById("pbar");
+
+  try{
+    log("🔐 Verifying token...","act");
+    const me=await gh("https://api.github.com/user",false);
+    log(`✓ Authenticated as ${me.login}`,"ok");
+    prog(4);
+
+    log("👥 Fetching PostHog org members...","act");
+    const ml=await gh(`https://api.github.com/orgs/${ORG}/members?per_page=100`);
+    const org=new Set(ml.map(m=>m.login.toLowerCase()));
+    log(`✓ ${org.size} PostHog employees identified`,"ok");
+    prog(9);
+
+    log(`📦 Fetching PRs since ${new Date(SINCE).toDateString()}...`,"act");
+    const allPrs=await gh(`https://api.github.com/repos/${REPO}/pulls?state=all&sort=updated&direction=desc&per_page=100`);
+    const cut=new Date(SINCE);
+    const prs=allPrs.filter(p=>new Date(p.updated_at)>=cut);
+    log(`✓ ${prs.length} PRs in 90-day window`,"ok");
+    prog(17);
+
+    log("🐛 Fetching external user issues...","act");
+    const allIss=await gh(`https://api.github.com/repos/${REPO}/issues?state=all&since=${SINCE}&per_page=100`);
+    const issues=allIss.filter(i=>!i.pull_request);
+    log(`✓ ${issues.length} issues found`,"ok");
+    prog(24);
+
+    // Accumulators
+    const D={};
+    function en(l){if(!D[l])D[l]={pc:0,pm:0,cx:0,rc:0,rq:0,cc:0,cl:new Set(),ups:0,rfs:0,rb:{},del:0,rev:0};}
+
+    // PRs
+    log(`🔍 Analyzing PRs: complexity, reviews, revenue signals...`,"act");
+    const B=6;
+    for(let i=0;i<prs.length;i+=B){
+      const batch=prs.slice(i,i+B);
+      await Promise.all(batch.map(async pr=>{
+        const a=(pr.user?.login||"").toLowerCase();
+        if(!a||a.includes("[bot]")||a==="dependabot"||!org.has(a))return;
+        en(a);D[a].pc++;
+        if(pr.merged_at)D[a].pm++;
+
+        // Full PR for complexity + revenue
+        const full=await gh(`https://api.github.com/repos/${REPO}/pulls/${pr.number}`,false);
+        if(full?.number){
+          const cx=complexity(full);D[a].cx+=cx;
+          const rm=revMatch(`${pr.title||""} ${pr.body||""}`);
+          for(const[f,c]of Object.entries(rm)){
+            const w=REV_W[f]*c*(pr.merged_at?1.5:1);
+            D[a].rfs+=w;D[a].rb[f]=(D[a].rb[f]||0)+w;
+          }
+        }
+
+        // Reviews
+        const rvs=await gh(`https://api.github.com/repos/${REPO}/pulls/${pr.number}/reviews`,false);
+        for(const rv of(rvs||[])){
+          const r=(rv.user?.login||"").toLowerCase();
+          if(!r||r.includes("[bot]")||!org.has(r))continue;
+          en(r);D[r].rc++;D[r].cl.add(a);
+          if(rv.state==="CHANGES_REQUESTED")D[r].rq+=2;
+          else if(rv.state==="APPROVED"&&(rv.body||"").length>50)D[r].rq+=1;
+        }
+
+        // Inline comments
+        const cs=await gh(`https://api.github.com/repos/${REPO}/pulls/${pr.number}/comments`,false);
+        for(const c of(cs||[])){
+          const r=(c.user?.login||"").toLowerCase();
+          if(!r||r.includes("[bot]")||!org.has(r))continue;
+          en(r);if((c.body||"").length>30)D[r].cc++;
+        }
+      }));
+      prog(24+Math.round((i/prs.length)*46));
+      if((i+B)%24===0)log(`  ↳ ${Math.min(i+B,prs.length)}/${prs.length} PRs processed`,"");
+    }
+    log("✓ PR analysis complete","ok");
+    prog(70);
+
+    // Issues — Custom Score A
+    log("🧩 Scoring user problem resolution (Custom Score A)...","act");
+    const extIss=issues.filter(iss=>{
+      const rep=(iss.user?.login||"").toLowerCase();
+      if(org.has(rep))return false;
+      const lbl=(iss.labels||[]).map(l=>l.name.toLowerCase()).join(" ");
+      const ttl=(iss.title||"").toLowerCase();
+      return/bug|feature|enhancement|request|help wanted/.test(lbl)||/bug|issue|problem|broken|feature request|not working|can we|would be nice/.test(ttl);
+    });
+    log(`  ${extIss.length} external user-reported issues identified`,"");
+
+    for(let i=0;i<extIss.length;i+=8){
+      await Promise.all(extIss.slice(i,i+8).map(async iss=>{
+        const cs=await gh(`https://api.github.com/repos/${REPO}/issues/${iss.number}/comments`,false);
+        const rxn=iss.reactions?.total_count||0;
+        const fb=Object.values(revMatch(`${iss.title||""} ${iss.body||""}`)).reduce((a,b)=>a+b,0)*.5;
+        const cb=Math.min(rxn*.2,3);
+        for(const c of(cs||[])){
+          const r=(c.user?.login||"").toLowerCase();
+          if(!r||!org.has(r))continue;
+          en(r);
+          const b=(c.body||"").toLowerCase();
+          const resolved=/fixed in|fixed by|merged|released|deployed|this is now|we.ve added|we.ve fixed|should work now|available in|you can now|resolved|closing/.test(b);
+          const engaged=b.length>100;
+          const base=resolved?3:(engaged?1:0);
+          if(base)D[r].ups+=base+fb+cb;
+        }
+      }));
+      prog(70+Math.round((i/extIss.length)*20));
+    }
+    log("✓ User problem scoring complete","ok");
+    prog(90);
+
+    // Final scores
+    log("📊 Computing composite impact scores...","act");
+    const engs=[];
+    for(const[l,d] of Object.entries(D)){
+      if(!org.has(l))continue;
+      if(d.pc+d.rc<2)continue;
+      const mr=d.pm/Math.max(d.pc,1);
+      const del=d.cx*(0.5+0.5*mr);
+      const rev=d.rc*1+d.rq*1.5+d.cc*.5;
+      const col=d.cl.size*2;
+      const imp=del*.3+rev*.2+col*.1+d.ups*4+d.rfs*2;
+      engs.push({login:l,impact_score:Math.round(imp*10)/10,
+        pr_merged:d.pm,pr_count:d.pc,merge_rate:Math.round(mr*1000)/10,
+        review_count:d.rc,review_quality:Math.round(d.rq*10)/10,comment_count:d.cc,
+        collab_count:d.cl.size,collab_score:Math.round(col*10)/10,
+        user_problem_score:Math.round(d.ups*100)/100,
+        revenue_feature_score:Math.round(d.rfs*100)/100,revenue_breakdown:d.rb,
+        delivery_score:Math.round(del*10)/10,review_score:Math.round(rev*10)/10});
+    }
+    engs.sort((a,b)=>b.impact_score-a.impact_score);
+    log(`✓ Ranked ${engs.length} engineers. Top: ${engs.slice(0,3).map(e=>e.login).join(", ")}`,"ok");
+    prog(100);
+    setTimeout(()=>render(engs,org.size),600);
+  }catch(e){log(`❌ ${e.message}`,"er");console.error(e);}
+}
+
+function render(engs,total){
+  document.getElementById("progress").style.display="none";
+  document.getElementById("dash").style.display="block";
+  const top=engs.slice(0,5);
+  document.getElementById("hdr-meta").innerHTML=`${engs.length} employees ranked · ${total} org members<br>${new Date(SINCE).toLocaleDateString("en-US",{month:"short",day:"numeric"})} – today · Live data`;
+  document.getElementById("board").innerHTML=top.map((e,i)=>card(e,i+1)).join("");
+  document.getElementById("ft").textContent=`PostHog Engineering Impact · ${engs.length} employees scored · 90-day window · github.com/PostHog/posthog`;
+}
+
+function segs(e){
+  const t=Math.max(e.delivery_score*.3+e.review_score*.2+e.collab_score*.1+e.user_problem_score*4+e.revenue_feature_score*2,.01);
+  return{del:e.delivery_score*.3/t*100,rev:e.review_score*.2/t*100,col:e.collab_score*.1/t*100,usr:e.user_problem_score*4/t*100,rfl:e.revenue_feature_score*2/t*100};
+}
+function tl(e){
+  const p=[];
+  if(e.pr_merged)p.push(`${e.pr_merged} PRs merged`);
+  if(e.review_count)p.push(`${e.review_count} reviews given`);
+  if(e.user_problem_score>0)p.push(`resolved ~${Math.ceil(e.user_problem_score/3)} user issues`);
+  const tf=Object.entries(e.revenue_breakdown||{}).sort((a,b)=>b[1]-a[1])[0];
+  if(tf)p.push(`leads: ${FEAT_LBL[tf[0]]||tf[0]}`);
+  return p.join(" · ")||"—";
+}
+
+function card(e,r){
+  const s=segs(e);
+  const rp=Object.entries(e.revenue_breakdown||{}).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<span>${FEAT_LBL[k]||k} (${v.toFixed(1)})</span>`).join("");
+  return`<div class="card r${r}" id="C${r}">
+  <div class="card-top">
+    <div class="rk">${r}</div>
+    <img class="av" src="https://github.com/${e.login}.png?size=68" loading="lazy">
+    <div class="eng-info">
+      <div class="eng-name">${e.login}<a class="gh-lnk" href="https://github.com/${e.login}" target="_blank">↗</a></div>
+      <div class="eng-tag">${tl(e)}</div>
+    </div>
+    <div class="score-sec">
+      <div class="bar-wrap">
+        <div class="bar-lbl">score composition</div>
+        <div class="sbar">
+          <div class="bs bs-del" style="width:${s.del}%"></div>
+          <div class="bs bs-rev" style="width:${s.rev}%"></div>
+          <div class="bs bs-usr" style="width:${s.usr}%"></div>
+          <div class="bs bs-rfl" style="width:${s.rfl}%"></div>
+          <div class="bs bs-col" style="width:${s.col}%"></div>
+        </div>
+      </div>
+      <div class="iscore">${e.impact_score.toFixed(0)}</div>
+      <button class="exp-btn" onclick="event.stopPropagation();tog(${r})">Details ▾</button>
+    </div>
+  </div>
+  <div class="detail" id="DT${r}">
+    <div class="mg">
+      <div class="mc"><div class="mv" style="color:var(--accent)">${e.pr_merged}</div><div class="ml">PRs Merged</div></div>
+      <div class="mc"><div class="mv">${e.merge_rate}%</div><div class="ml">Merge Rate</div></div>
+      <div class="mc"><div class="mv" style="color:var(--accent2)">${e.review_count}</div><div class="ml">Reviews Given</div></div>
+      <div class="mc"><div class="mv">${e.comment_count}</div><div class="ml">Code Comments</div></div>
+      <div class="mc"><div class="mv" style="color:#60a5fa">${e.collab_count}</div><div class="ml">Engineers Unblocked</div></div>
+    </div>
+    <div class="cs-grid">
+      <div class="cs-box">
+        <div class="cs-hdr"><span class="cs-badge b-usr">Custom Score A</span><span class="cs-t">User Problem Solver</span></div>
+        <div class="cs-sc" style="color:#a78bfa">${e.user_problem_score.toFixed(1)}</div>
+        <div class="cs-desc">Scores engagement with <strong>external user-reported</strong> bugs &amp; feature requests in GitHub Issues. Points awarded when this PostHog employee resolves the issue (not just reviews code from an external contributor). Boosted by community reaction count (broader impact) and whether the issue touches a revenue feature. Weight ×4 in composite.</div>
+      </div>
+      <div class="cs-box">
+        <div class="cs-hdr"><span class="cs-badge b-rfl">Custom Score B</span><span class="cs-t">Revenue Feature Contributor</span></div>
+        <div class="cs-sc" style="color:#34d399">${e.revenue_feature_score.toFixed(1)}</div>
+        <div class="cs-desc">Tracks PRs touching PostHog's top revenue-driving features (per market research): Session Replay, Feature Flags &amp; Experiments, Product Analytics/HogQL, Data Pipeline/Ingestion, LLM Analytics. Merged PRs score ×1.5. Weight ×2 in composite.</div>
+        ${rp?`<div class="rfp">${rp}</div>`:""}
+      </div>
+    </div>
+  </div>
+</div>`;
+}
+
+function tog(r){
+  const p=document.getElementById(`DT${r}`);
+  const b=document.querySelector(`#C${r} .exp-btn`);
+  const o=p.classList.toggle("open");
+  b.textContent=o?"Details ▴":"Details ▾";
+}
+
+// Pre-fill token if passed via URL hash for convenience
+const h=location.hash.slice(1);
+if(h.startsWith("ghp_")){document.getElementById("tok").value=h;location.hash="";}
+</script>
+</body>
+</html>
